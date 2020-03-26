@@ -1,0 +1,120 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import cross_val_score
+from sklearn.svm import SVC
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import LabelEncoder
+l = LabelEncoder()
+
+#Загружаем
+sample_sub = pd.read_csv("sample_submission.csv")
+studs_info = pd.read_csv("studs_info.csv")
+train = pd.read_csv("X_train.csv")
+target = pd.read_csv("y_train.csv")
+test = pd.read_csv("X_test.csv")
+
+#идея создать колонку со средней оценкой
+#идея создать колонку кто сколько закончил
+
+#Создание колонки со средней оценкой
+s = train.groupby(["STD_ID"]).count()["Unnamed: 0"].size
+marks_row = []
+for i in range(s):
+    m = target[train.STD_ID.values[i]==train.STD_ID.values].mark.median()
+    marks_row.append(m)
+marks_column = pd.Series(marks_row)
+
+#Ее добавление
+students = train.groupby(["STD_ID"]).count()
+students["Средняя оценка"] = marks_column.values
+
+#Деление на шифр и направление
+s = train["STD_ID"].size
+code = []
+direct = []
+for i in range(s):
+    code_temp, direct_temp = train["НАПРАВЛЕНИЕ"].values[i].split(" ",1)
+    code.append(code_temp)
+    direct.append(direct_temp)
+train["НАПРАВЛЕНИЕ"] = pd.Series(direct).values
+train["ШИФР"] = pd.Series(code).values
+
+#Замена числами
+l.fit(train["АТТЕСТАЦИЯ"])
+train["АТТЕСТАЦИЯ"] = l.transform(train["АТТЕСТАЦИЯ"])
+l.fit(train["ДИСЦИПЛИНА"])
+train["ДИСЦИПЛИНА"] = l.transform(train["ДИСЦИПЛИНА"])
+l.fit(train["ШИФР"])
+train["ШИФР"] = l.transform(train["ШИФР"])
+l.fit(train["НАПРАВЛЕНИЕ"])
+train["НАПРАВЛЕНИЕ"] = l.transform(train["НАПРАВЛЕНИЕ"])
+
+#Удаляем ненужное
+train = train.drop("ГОД",axis = 1)
+
+
+#НС
+kfold = 5
+itog_val = {}
+model_rfc = RandomForestClassifier(n_estimators = 70)
+model_knc = KNeighborsClassifier(n_neighbors = 24)
+model_lr = LogisticRegression(penalty = "l2", tol = 0.01, max_iter=10000)
+
+#Функция определения точности
+def my_custom_loss_func(y_pred, y_true):
+    wrong = 0
+    for i in range(y_true.size):
+        if y_true[i] != y_pred[i]:
+            wrong += 1
+    return (y_true.size-wrong)/y_true.size
+
+#Забыл удалить еще кое-что
+targ = target.mark
+tr = train.drop(["Unnamed: 0","STD_ID"], axis = 1)
+
+model_rfc.fit(tr,targ)
+pred1 = model_rfc.predict(tr)
+itog_val["rfc"] = my_custom_loss_func(pred1, targ)
+
+model_knc.fit(tr,targ)
+pred2 = model_knc.predict(tr)
+itog_val["knc"] = my_custom_loss_func(pred2, targ)
+
+model_lr.fit(tr,targ)
+pred3 = model_lr.predict(tr)
+itog_val["lr"] = my_custom_loss_func(pred3, targ)
+
+#Смотрим какая лучше
+pd.DataFrame.from_dict(data = itog_val, orient = "index").plot(kind = "bar")
+itog_val
+
+
+test = test.drop("ГОД",axis = 1)
+s = test["STD_ID"].size
+code = []
+direct = []
+for i in range(s):
+    code_temp, direct_temp = test["НАПРАВЛЕНИЕ"].values[i].split(" ",1)
+    code.append(code_temp)
+    direct.append(direct_temp)
+test["НАПРАВЛЕНИЕ"] = pd.Series(direct).values
+test["ШИФР"] = pd.Series(code).values
+
+l.fit(test["АТТЕСТАЦИЯ"])
+test["АТТЕСТАЦИЯ"] = l.transform(test["АТТЕСТАЦИЯ"])
+l.fit(test["ДИСЦИПЛИНА"])
+test["ДИСЦИПЛИНА"] = l.transform(test["ДИСЦИПЛИНА"])
+l.fit(test["ШИФР"])
+test["ШИФР"] = l.transform(test["ШИФР"])
+l.fit(test["НАПРАВЛЕНИЕ"])
+test["НАПРАВЛЕНИЕ"] = l.transform(test["НАПРАВЛЕНИЕ"])
+test = test.drop(["Unnamed: 0","STD_ID"], axis = 1)
+
+model_rfc.fit(tr,targ)
+pred = model_rfc.predict(test)\
+
+sample_sub["mark"] = pred
+sample_sub.to_csv("sample_submission", index = False)
